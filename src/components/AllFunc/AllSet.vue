@@ -63,6 +63,7 @@
       <n-tab-pane name="personalization" tab="个性调整">
         <n-scrollbar class="scrollbar">
           <n-h6 prefix="bar"> 壁纸 </n-h6>
+          <!-- 壁纸遮罩 -->
           <n-card class="set-item">
             <div class="name">
               <span class="title">壁纸遮罩</span>
@@ -70,6 +71,8 @@
             </div>
             <n-switch v-model:value="showBackgroundGray" :round="false" />
           </n-card>
+
+          <!-- 壁纸模糊 -->
           <n-card class="set-item">
             <div class="name">
               <span class="title">壁纸模糊</span>
@@ -84,6 +87,7 @@
               :tooltip="false"
             />
           </n-card>
+
           <n-h6 prefix="bar"> 天气与时间 </n-h6>
           <n-card class="set-item">
             <div class="name">
@@ -190,7 +194,7 @@
       <n-card title="添加壁纸">
         <n-form>
           <n-form-item label="壁纸名称">
-            <n-input v-model:value="wallpaperName" />
+            <n-input v-model:value="wallpaperName" placeholder="请输入壁纸名称（支持中文）" />
           </n-form-item>
           <n-form-item label="选择图片">
             <n-upload
@@ -228,7 +232,8 @@
                   <n-button @click="useWallpaper(paper)" size="small">
                     使用
                   </n-button>
-                  <n-button @click="deleteWallpaper(paper.id)" type="error" size="small">
+                  <span>{{ paper.name.substring(0, 8) }}</span>
+                  <n-button @click="handleDeleteWallpaper(paper.id)" type="error" size="small">
                     删除
                   </n-button>
                 </n-space>
@@ -236,6 +241,7 @@
             </n-card>
           </n-grid-item>
         </n-grid>
+
       </n-card>
     </n-modal>
   </div>
@@ -271,6 +277,7 @@ const message = useMessage();
 const dialog = useDialog();
 const set = setStore();
 const status = statusStore();
+import { deleteWallpaper as apiDeleteWallpaper } from '@/api';
 
 
 const {
@@ -436,7 +443,22 @@ const useWallpaper = (paper) => {
   backgroundType.value = 4;
   backgroundCustom.value = paper.url;
   wallpaperListVisible.value = false;
-  message.success('壁纸设置成功，刷新后生效');
+  message.success('壁纸设置成功');
+};
+// 删除壁纸方法
+const handleDeleteWallpaper = async (id) => {
+  try {
+    console.log('Deleting wallpaper with ID:', id); //
+    await apiDeleteWallpaper(id); // 调用 API 方法
+    message.success('删除成功');
+
+    // 手动从 wallpapers 数组中移除已删除的壁纸
+    wallpapers.value = wallpapers.value.filter(wallpaper => wallpaper.id !== id);
+
+  } catch (error) {
+    console.error('删除壁纸失败:', error);
+    message.error('删除失败');
+  }
 };
 
 // 站点重置
@@ -574,6 +596,19 @@ onMounted(() => {
     &:active {
       box-shadow: none;
     }
+  }
+}
+.n-space {
+  margin-top: 16px; /* 向下移动一点 */
+}
+.n-card {
+  border: none; /* 移除边框 */
+  border-radius: 8px; /* 圆角 */
+  img {
+    width: 100%; /* 确保图片宽度占满卡片 */
+    height: 150px; /* 固定高度 */
+    object-fit: cover; /* 图片填充方式 */
+    border-radius: 8px; /* 与卡片相同的圆角 */
   }
 }
 

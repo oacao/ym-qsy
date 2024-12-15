@@ -5,11 +5,24 @@
       tabindex="0"
       id="main"
       :class="`main-${status.siteStatus}`"
-      :style="{ pointerEvents: mainClickable ? 'auto' : 'none' }"
+      :style="{
+        pointerEvents: mainClickable ? 'auto' : 'none',
+      }"
       @click="status.setSiteStatus('normal')"
       @contextmenu="mainContextmenu"
       @keydown="mainPressKeyboard"
     >
+      <!-- 新增的壁纸层 -->
+      <div class="background-layer"
+           :style="{
+             backgroundImage: backgroundType === 4 ? `url(${backgroundCustom})` : '',
+             backgroundSize: 'cover',
+             backgroundPosition: 'center',
+             backdropFilter: showBackgroundGray ? 'brightness(0.1) blur(1000px)' : 'none',
+             filter: `blur(${backgroundBlur}px)`,
+             backgroundColor: showBackgroundGray ? 'black' : 'transparent'
+           }"></div>
+
       <WeatherTime v-if="!isLoginOrRegisterVisible" />
       <SearchInp v-if="!isLoginOrRegisterVisible" @contextmenu.stop />
       <AllFunc v-if="!isLoginOrRegisterVisible" @contextmenu.stop />
@@ -48,17 +61,6 @@
       </Transition>
     </main>
 
-    <nav class="navbar" v-if="!isLoginOrRegisterVisible">
-      <template v-if="!currentUser">
-        <a href="#" @click.prevent="showLogin">登录</a>
-        <a href="#" @click.prevent="showRegister">注册</a>
-      </template>
-      <template v-else>
-        <span class="username">{{ currentUser.username }}</span>
-        <a href="#" @click.prevent="handleLogout">退出</a>
-      </template>
-    </nav>
-
     <div v-if="isLoginOrRegisterVisible"
          class="modal-overlay"
          @click="closeModal">
@@ -82,8 +84,9 @@
   </Provider>
 </template>
 
+
 <script setup>
-import { onMounted, watch, ref } from "vue";
+import { onMounted, watch, ref, computed } from "vue";
 import { statusStore, setStore } from "@/stores";
 import { getGreeting } from "@/utils/timeTools";
 import Provider from "@/components/Provider.vue";
@@ -95,6 +98,7 @@ import Login from "@/components/Login.vue";
 import Register from "@/components/Register.vue";
 import SvgIcon from "@/components/SvgIcon.vue";
 import { markRaw } from 'vue'
+
 const set = setStore();
 const status = statusStore();
 const mainClickable = ref(true);
@@ -106,6 +110,11 @@ const isLogoutProcessing = ref(false);
 // 获取配置
 const welcomeText = import.meta.env.VITE_WELCOME_TEXT ?? "欢迎访问本站";
 
+// 计算属性来获取背景类型和背景自定义URL
+const backgroundType = computed(() => set.backgroundType);
+const backgroundCustom = computed(() => set.backgroundCustom);
+const showBackgroundGray = computed(() => set.showBackgroundGray);
+const backgroundBlur = computed(() => set.backgroundBlur);
 // 鼠标右键
 const mainContextmenu = (event) => {
   event.preventDefault();
@@ -148,8 +157,6 @@ const handleLoginSuccess = (response) => {
     currentComponent.value = null;
   }
 };
-
-
 
 onMounted(() => {
   changeThemeType(set.themeType);
@@ -197,6 +204,7 @@ const handleLogout = () => {
     isLogoutProcessing.value = false;
   }, 300);
 };
+
 </script>
 
 <style lang="scss" scoped>
@@ -210,6 +218,18 @@ const handleLogout = () => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  z-index: 1;
+
+  .background-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1; /* 确保背景层在最底层 */
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.5)); /* 透明黑色渐变效果 */
+  }
+
 
   &.main-normal,
   &.main-focus {
@@ -252,6 +272,7 @@ const handleLogout = () => {
     align-items: center;
     justify-content: space-between;
     box-sizing: border-box;
+    z-index: 10; /* 设置控制栏的 z-index 为 10 */
 
     .change-status {
       cursor: pointer;
@@ -285,7 +306,7 @@ const handleLogout = () => {
   right: 20px;
   display: flex;
   gap: 10px;
-  margin-right: 30px;
+  z-index: 10; /* 设置导航栏的 z-index 为 10 */
 
   .username {
     color: var(--main-text-color);
@@ -311,12 +332,14 @@ const handleLogout = () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 1000; /* 设置模态框的 z-index 为 1000 */
 }
 
 .modal-content {
   background: transparent;
   padding: 0;
   border-radius: 8px;
+  z-index: 1001; /* 设置模态框内容的 z-index 为 1001 */
 }
+
 </style>

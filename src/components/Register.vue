@@ -6,7 +6,7 @@
         <input
           v-model="form.username"
           type="text"
-          placeholder="用户名 (4-16位字母数字)"
+          placeholder="用户名 (2-16位字母数字中文)"
           @input="validateUsername"
           required
         />
@@ -16,7 +16,7 @@
         <input
           v-model="form.password"
           type="password"
-          placeholder="密码 (8-20位，包含字母和数字)"
+          placeholder="密码 (6-20位，包含字母和数字)"
           @input="validatePassword"
           required
         />
@@ -38,6 +38,7 @@
     </form>
   </div>
 </template>
+
 
 <script setup>
 import { ref, computed } from 'vue';
@@ -66,20 +67,21 @@ const hasErrors = computed(() => {
 
 const validateUsername = () => {
   const username = form.value.username;
-  if (username.length < 4 || username.length > 16) {
-    errors.value.username = '用户名长度必须在4-16位之间';
-  } else if (!/^[a-zA-Z0-9]+$/.test(username)) {
-    errors.value.username = '用户名只能包含字母和数字';
+  if (username.length < 2 || username.length > 16) {
+    errors.value.username = '用户名长度必须在2-16位之间';
+  } else if (!/^[\u4e00-\u9fa5a-zA-Z0-9]+$/.test(username)) {
+    errors.value.username = '用户名只能包含字母、数字和中文';
   } else {
     errors.value.username = '';
   }
 };
 
+
 const validatePassword = () => {
   const password = form.value.password;
-  if (password.length < 8 || password.length > 20) {
-    errors.value.password = '密码长度必须在8-20位之间';
-  } else if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,20}$/.test(password)) {
+  if (password.length < 6 || password.length > 20) {
+    errors.value.password = '密码长度必须在6-20位之间';
+  } else if (!/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,20}$/.test(password)) {
     errors.value.password = '密码必须包含字母和数字';
   } else {
     errors.value.password = '';

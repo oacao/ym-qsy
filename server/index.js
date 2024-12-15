@@ -5,6 +5,7 @@ const mysql = require('mysql2');
 const bcrypt = require('bcrypt');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const saltRounds = 10;
@@ -29,7 +30,9 @@ const pool = mysql.createPool({
   database: 'mysql',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  charset: 'utf8mb4',
+  collation: 'utf8mb4_unicode_ci'
 });
 
 const promisePool = pool.promise();
@@ -48,25 +51,53 @@ const initDatabase = async () => {
   try {
     // 创建用户表
     await promisePool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+        CREATE TABLE IF NOT EXISTS users (
+                                             id INT AUTO_INCREMENT PRIMARY KEY,
+                                             username VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                                             password VARCHAR(255) NOT NULL,
+                                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
     `);
 
     // 创建壁纸表
     await promisePool.query(`
-      CREATE TABLE IF NOT EXISTS wallpapers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        url VARCHAR(255) NOT NULL,
-        name VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-      )
+        CREATE TABLE IF NOT EXISTS wallpapers (
+                                                  id INT AUTO_INCREMENT PRIMARY KEY,
+                                                  user_id INT NOT NULL,
+                                                  url VARCHAR(255) NOT NULL,
+                                                  name VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci, 
+                                                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                                  FOREIGN KEY (user_id) REFERENCES users(id)
+        )
     `);
+    // 创建便签表
+    await promisePool.query(`
+    CREATE TABLE IF NOT EXISTS notes (
+                                         id INT AUTO_INCREMENT PRIMARY KEY,
+                                         user_id INT NOT NULL,
+                                         content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+                                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                         FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+`);
+// 创建任务表
+    await promisePool.query(`
+        CREATE TABLE IF NOT EXISTS todos (
+                                             id INT AUTO_INCREMENT PRIMARY KEY,
+                                             user_id INT NOT NULL,
+                                             title VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+                                             priority INT DEFAULT 3,
+                                             due_date DATETIME,
+                                             completed BOOLEAN DEFAULT FALSE,
+                                             tags TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                                             description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+                                             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                             FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    `);
+
+
+
 
     console.log('数据库初始化完成');
   } catch (error) {
@@ -92,6 +123,11 @@ app.post('/register', async (req, res) => {
     return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
   }
 
+  // 更新正则表达式以允许中文字符
+  if (!/^[\u4e00-\u9fa5a-zA-Z0-9]+$/.test(username)) {
+    return res.status(400).json({ success: false, message: '用户名只能包含字母、数字和中文' });
+  }
+
   try {
     const hashedPassword = await bcrypt.hash(password, saltRounds);
     const [result] = await promisePool.query(
@@ -114,6 +150,7 @@ app.post('/register', async (req, res) => {
     }
   }
 });
+
 
 // 登录接口
 app.post('/login', async (req, res) => {
@@ -232,14 +269,252 @@ app.get('/wallpapers/:userId', async (req, res) => {
     });
   }
 });
+
 // 删除壁纸接口
 app.delete('/wallpaper/:id', async (req, res) => {
   const { id } = req.params;
+  console.log('Received delete request for wallpaper with ID:', id); // 添加日志
+
   try {
-    await promisePool.query('DELETE FROM wallpapers WHERE id = ?', [id]);
-    res.json({ success: true });
+    // 查询要删除的壁纸
+    const [wallpapers] = await promisePool.query(
+      'SELECT * FROM wallpapers WHERE id = ?',
+      [id]
+    );
+
+    if (wallpapers.length === 0) {
+      console.log('Wallpaper not found with ID:', id); // 添加日志
+      return res.status(404).json({ success: false, message: '壁纸未找到' });
+    }
+
+    const wallpaper = wallpapers[0];
+
+    // 删除数据库中的记录
+    await promisePool.query(
+      'DELETE FROM wallpapers WHERE id = ?',
+      [id]
+    );
+    console.log('Wallpaper deleted from database:', wallpaper); // 添加日志
+
+    // 删除文件系统中的图片文件
+    const imagePath = path.join(__dirname, 'uploads', path.basename(wallpaper.url));
+    if (fs.existsSync(imagePath)) {
+      fs.unlink(imagePath, (err) => {
+        if (err) {
+          console.error('Error deleting image file:', err);
+          return res.status(500).json({ success: false, message: '删除图片文件失败' });
+        }
+        console.log('Image file deleted:', imagePath);
+        res.status(200).json({ success: true, message: '壁纸删除成功' });
+      });
+    } else {
+      console.log('Image file does not exist:', imagePath);
+      res.status(200).json({ success: true, message: '壁纸删除成功' });
+    }
   } catch (error) {
-    res.json({ success: false, message: '删除失败' });
+    console.error('Error deleting wallpaper:', error);
+    res.status(500).json({ success: false, message: '删除失败' });
+  }
+});
+// 添加便签接口
+app.post('/note', async (req, res) => {
+  const { userId, content } = req.body;
+  if (!userId) {
+    return res.status(400).json({ success: false, message: '用户ID不能为空' });
+  }
+
+  try {
+    const [result] = await promisePool.query(
+      'INSERT INTO notes (user_id, content) VALUES (?, ?)',
+      [userId, content || '']
+    );
+
+    const [newNote] = await promisePool.query(
+      'SELECT * FROM notes WHERE id = ?',
+      [result.insertId]
+    );
+
+    res.json({
+      success: true,
+      data: newNote[0]
+    });
+  } catch (error) {
+    console.error('添加便签失败:', error);
+    res.json({ success: false, message: '添加便签失败' });
+  }
+});
+
+// 更新便签接口
+app.put('/note/:id', async (req, res) => {
+  const { id } = req.params;
+  const { content } = req.body;
+
+  try {
+    await promisePool.query(
+      'UPDATE notes SET content = ? WHERE id = ?',
+      [content, id]
+    );
+
+    const [updatedNote] = await promisePool.query(
+      'SELECT * FROM notes WHERE id = ?',
+      [id]
+    );
+
+    res.json({
+      success: true,
+      data: updatedNote[0]
+    });
+  } catch (error) {
+    console.error('更新便签失败:', error);
+    res.json({ success: false, message: '更新便签失败' });
+  }
+});
+
+
+
+
+// 获取便签列表接口
+app.get('/notes/:userId', async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) {
+    return res.status(400).json({ success: false, message: '用户ID不能为空' });
+  }
+
+  try {
+    const [rows] = await promisePool.query(
+      'SELECT * FROM notes WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('获取便签失败:', error);
+    res.json({
+      success: false,
+      message: '获取便签失败'
+    });
+  }
+});
+
+
+
+
+
+// 删除便签接口
+app.delete('/note/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [result] = await promisePool.query(
+      'DELETE FROM notes WHERE id = ?',
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: '便签未找到' });
+    }
+
+    res.json({ success: true, message: '便签删除成功' });
+  } catch (error) {
+    console.error('删除便签失败:', error);
+    res.json({ success: false, message: '删除便签失败' });
+  }
+});
+
+// 添加任务接口
+app.post('/todo', async (req, res) => {
+  const { userId, title, priority, dueDate, tags, description } = req.body;
+
+  // 转换日期格式为MySQL datetime格式
+  const formattedDate = dueDate ? new Date(dueDate).toISOString().slice(0, 19).replace('T', ' ') : null;
+
+  try {
+    const [result] = await promisePool.query(
+      'INSERT INTO todos (user_id, title, priority, due_date, tags, description) VALUES (?, ?, ?, ?, ?, ?)',
+      [userId, title, priority, formattedDate, tags, description]
+    );
+
+    const [newTodo] = await promisePool.query(
+      'SELECT * FROM todos WHERE id = ?',
+      [result.insertId]
+    );
+
+    res.json({
+      success: true,
+      data: newTodo[0]
+    });
+  } catch (error) {
+    console.error('添加任务失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '添加任务失败',
+      error: error.message
+    });
+  }
+});
+
+
+// 获取任务列表
+app.get('/todos/:userId', async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const [rows] = await promisePool.query(
+      'SELECT * FROM todos WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
+    res.json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('获取任务列表失败:', error);
+    res.json({ success: false, message: '获取任务列表失败' });
+  }
+});
+
+
+// 更新任务
+app.put('/todo/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, priority, dueDate, completed, tags, description } = req.body;
+
+  const formattedDate = dueDate ? new Date(dueDate).toISOString().slice(0, 19).replace('T', ' ') : null;
+
+  try {
+    await promisePool.query(
+      'UPDATE todos SET title = ?, priority = ?, due_date = ?, completed = ?, tags = ?, description = ? WHERE id = ?',
+      [title, priority, formattedDate, completed, JSON.stringify(tags), description, id]
+    );
+
+    const [updatedTodo] = await promisePool.query(
+      'SELECT * FROM todos WHERE id = ?',
+      [id]
+    );
+
+    res.json({
+      success: true,
+      data: updatedTodo[0]
+    });
+  } catch (error) {
+    console.error('更新任务失败:', error);
+    res.json({ success: false, message: '更新任务失败' });
+  }
+});
+
+
+// 删除任务
+app.delete('/todo/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await promisePool.query('DELETE FROM todos WHERE id = ?', [id]);
+    res.json({ success: true, message: '删除任务成功' });
+  } catch (error) {
+    console.error('删除任务失败:', error);
+    res.json({ success: false, message: '删除任务失败' });
   }
 });
 

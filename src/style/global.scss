@@ -23,6 +23,16 @@
   padding: 0;
   user-select: none;
 }
+:root {
+  --mask-color: rgba(0, 0, 0, 0.8);
+  --mask-blur: 10px;
+}
+
+[theme="dark"] {
+  --mask-color: rgba(0, 0, 0, 0.9);
+  --mask-blur: 15px;
+}
+
 
 html,
 body {
@@ -35,6 +45,8 @@ body {
   background-repeat: no-repeat;
   overflow: hidden;
   font-family: "HarmonyOS_Regular", sans-serif;
+  backdrop-filter: var(--background-gray);
+  filter: var(--background-blur);
 }
 
 
